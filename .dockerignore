@@ -1,0 +1,10 @@
+**/build/
+.gradle/
+build-cache/
+.idea/
+*.iml
+deployment/terraform/
+docs/
+postman/
+**/*.tfstate*
+.env

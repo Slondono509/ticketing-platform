@@ -1,0 +1,77 @@
+name: ticketing-platform
+
+# Local environment: the same application image that runs on ECS, backed by AWS-compatible emulators.
+#   DynamoDB      -> DynamoDB Local
+#   SQS           -> ElasticMQ (SQS API compatible, with DLQs and redrive policies)
+#   EventBridge   -> scheduler-simulator (publishes a tick every minute to the expiration queue)
+#
+# Usage: docker compose up --build
+
+x-aws-local-env: &aws-local-env
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: local          # dummy credentials, emulators do not validate them
+  AWS_SECRET_ACCESS_KEY: local
+  AWS_PAGER: ""
+
+services:
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
+    ports:
+      - "8000:8000"
+
+  elasticmq:
+    image: softwaremill/elasticmq-native:latest
+    volumes:
+      - ./deployment/local/elasticmq.conf:/opt/elasticmq.conf:ro
+    ports:
+      - "9324:9324"   # SQS API
+      - "9325:9325"   # Web UI to inspect queues and DLQs
+
+  dynamodb-init:
+    image: amazon/aws-cli:latest
+    depends_on:
+      dynamodb-local:
+        condition: service_started
+    environment:
+      <<: *aws-local-env
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    volumes:
+      - ./deployment/local/init-dynamodb.sh:/scripts/init-dynamodb.sh:ro
+    entrypoint: ["/bin/sh", "-c", "until aws dynamodb list-tables --endpoint-url http://dynamodb-local:8000 >/dev/null 2>&1; do sleep 1; done; sh /scripts/init-dynamodb.sh"]
+    restart: "no"
+
+  scheduler-simulator:
+    image: amazon/aws-cli:latest
+    depends_on:
+      - elasticmq
+    environment:
+      <<: *aws-local-env
+      SQS_ENDPOINT: http://elasticmq:9324
+      RESERVATION_EXPIRATION_QUEUE_URL: http://elasticmq:9324/000000000000/ticketing-reservation-expiration
+      SCHEDULE_INTERVAL_SECONDS: ${SCHEDULE_INTERVAL_SECONDS:-60}
+    volumes:
+      - ./deployment/local/scheduler-simulator.sh:/scripts/scheduler-simulator.sh:ro
+    entrypoint: ["/bin/sh", "/scripts/scheduler-simulator.sh"]
+
+  app:
+    build:
+      context: .
+      dockerfile: deployment/Dockerfile
+    image: ticketing-platform:local
+    depends_on:
+      dynamodb-init:
+        condition: service_completed_successfully
+      elasticmq:
+        condition: service_started
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *aws-local-env
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+      SQS_ENDPOINT: http://elasticmq:9324
+      ORDER_COMMANDS_QUEUE_URL: http://elasticmq:9324/000000000000/ticketing-order-commands
+      RESERVATION_EXPIRATION_QUEUE_URL: http://elasticmq:9324/000000000000/ticketing-reservation-expiration
+      RESERVATION_TTL: ${RESERVATION_TTL:-10m}
+      # Local-only default. In AWS the key is injected from Secrets Manager.
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-local-admin-key}
