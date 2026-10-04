@@ -1,0 +1,12 @@
+# Profile used when running on ECS Fargate (SPRING_PROFILES_ACTIVE=aws).
+# Endpoints are not overridden: the SDK resolves the regional endpoints (reached through VPC endpoints) and the
+# credentials come from the ECS task role.
+logging:
+  structured:
+    format:
+      console: ecs
+
+management:
+  endpoint:
+    health:
+      show-details: never

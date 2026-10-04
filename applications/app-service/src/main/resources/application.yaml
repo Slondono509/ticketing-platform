@@ -1,0 +1,68 @@
+server:
+  port: 8080
+  shutdown: graceful
+spring:
+  application:
+    name: "TicketingPlatform"
+  devtools:
+    add-properties: false
+  lifecycle:
+    timeout-per-shutdown-phase: 20s
+
+ticketing:
+  reservation:
+    ttl: ${RESERVATION_TTL:10m}
+    max-tickets-per-order: ${MAX_TICKETS_PER_ORDER:10}
+
+api:
+  availability-stream:
+    interval: 1s
+    max-duration: 10m
+
+# Injected from AWS Secrets Manager by the ECS task definition. Empty means every back-office call is rejected.
+security:
+  admin-api-key: ${ADMIN_API_KEY:}
+
+adapter:
+  dynamodb:
+    region: ${AWS_REGION:us-east-1}
+    endpoint: ${DYNAMODB_ENDPOINT:}
+    events-table: ${EVENTS_TABLE:ticketing-events}
+    orders-table: ${ORDERS_TABLE:ticketing-orders}
+    audit-table: ${AUDIT_TABLE:ticketing-order-audit}
+    expiration-shards: 8
+  sqs:
+    region: ${AWS_REGION:us-east-1}
+    endpoint: ${SQS_ENDPOINT:}
+    order-commands-queue-url: ${ORDER_COMMANDS_QUEUE_URL}
+  payment:
+    simulated-latency: 200ms
+
+entrypoint:
+  sqs:
+    region: ${AWS_REGION:us-east-1}
+    endpoint: ${SQS_ENDPOINT:}
+    wait-time-seconds: 20
+    max-number-of-messages: 10
+    visibility-timeout-seconds: 30
+    number-of-threads: 2
+    queues:
+      order-commands: ${ORDER_COMMANDS_QUEUE_URL}
+      reservation-expiration: ${RESERVATION_EXPIRATION_QUEUE_URL}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: "health,prometheus"
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200,http://localhost:8080}
+
+logging:
+  level:
+    co.com.ticketing: INFO
