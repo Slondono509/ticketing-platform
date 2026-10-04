@@ -1,0 +1,6 @@
+dependencies {
+    implementation project(':model')
+    implementation 'org.springframework:spring-context'
+    implementation 'org.springframework.boot:spring-boot'
+    implementation 'org.apache.logging.log4j:log4j-api'
+}
